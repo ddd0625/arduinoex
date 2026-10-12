@@ -1,0 +1,106 @@
+#include <Servo.h>
+#include <math.h>
+#define PIN_SERVO 10
+#define PIN_TRIG  12
+#define PIN_ECHO  13
+#define SOUND_SPEED 346.0
+#define TRIG_TIME 10
+#define DETECT_DISTANCE 200.0   
+#define LEAVE_DISTANCE  250.0   
+#define CLOSED_ANGLE 0
+#define OPEN_ANGLE   90
+#define MOVING_TIME 1200
+#define MOTION_MODE 1
+Servo myServo;
+unsigned long moveStartTime = 0;
+unsigned long lastMeasureTime = 0;
+int currentAngle = CLOSED_ANGLE;
+int startAngle = CLOSED_ANGLE;
+int targetAngle = CLOSED_ANGLE;
+bool moving = false;
+bool barrierOpen = false;
+void setup() {
+  pinMode(PIN_TRIG, OUTPUT);
+  pinMode(PIN_ECHO, INPUT);
+  digitalWrite(PIN_TRIG, LOW);
+  myServo.attach(PIN_SERVO);
+  myServo.write(CLOSED_ANGLE);
+  Serial.begin(57600);
+}
+void loop() {
+  if (millis() - lastMeasureTime >= 50) {
+    lastMeasureTime = millis();
+    float distance = measureDistance();
+    Serial.print("distance:");
+    Serial.print(distance);
+    Serial.print(",angle:");
+    Serial.println(currentAngle);
+    if (!barrierOpen &&  distance > 0 &&  distance <= DETECT_DISTANCE) {
+      barrierOpen = true;
+      startServoMove(OPEN_ANGLE);
+    }
+    else if (barrierOpen && distance >= LEAVE_DISTANCE) {
+      barrierOpen = false;
+      startServoMove(CLOSED_ANGLE);
+    }
+  }
+  updateServo();
+}
+void startServoMove(int newTarget)
+{
+  startAngle = currentAngle;
+  targetAngle = newTarget;
+  moveStartTime = millis();
+  moving = true;
+}
+void updateServo()
+{
+  if (!moving)
+    return;
+  unsigned long progress =
+      millis() - moveStartTime;
+  if (progress >= MOVING_TIME) {
+    currentAngle = targetAngle;
+    myServo.write(currentAngle);
+   moving = false;
+   return;
+  }
+  float t = (float)progress / MOVING_TIME;
+  float ratio;
+  if (MOTION_MODE == 1) {
+    ratio = sigmoidEase(t);
+  }
+  else {
+    ratio = smoothstepEase(t);
+  }
+  currentAngle =  startAngle + (targetAngle - startAngle) * ratio;
+  myServo.write(currentAngle);
+}
+float sigmoidEase(float t)
+{
+  float k = 12.0;
+  float value =
+      1.0 / (1.0 + exp(-k * (t - 0.5)));
+  float minValue =
+      1.0 / (1.0 + exp(k * 0.5));
+  float maxValue =
+      1.0 / (1.0 + exp(-k * 0.5));
+  return
+      (value - minValue)/ (maxValue - minValue);
+}
+float smoothstepEase(float t)
+{
+  return t * t * (3.0 - 2.0 * t);
+}
+float measureDistance()
+{
+  digitalWrite(PIN_TRIG, HIGH);
+  delayMicroseconds(TRIG_TIME);
+  digitalWrite(PIN_TRIG, LOW);
+  unsigned long duration =
+      pulseIn(PIN_ECHO, HIGH, 20000);
+  if (duration == 0)
+    return 999.0;
+  float distance =  duration * 0.001 * 0.5 * SOUND_SPEED;
+  return distance;
+}
